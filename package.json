@@ -1,0 +1,7 @@
+{
+  "name": "diet-calendar",
+  "private": true,
+  "scripts": {
+    "test": "node --check core.js && node --check app.js && node --test tests/*.test.js"
+  }
+}
