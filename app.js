@@ -431,18 +431,105 @@
     return m ? `${m[1]}/diet-data` : '';
   };
 
-  function openSettings() {
-    const on = !!cfg;
-    $('syncHint').textContent = on
-      ? `${cfg.repo} 저장소의 ${DATA_PATH} 에 기록을 저장하고 있습니다.`
-      : '비공개 GitHub 저장소를 서버로 씁니다. 저장소와 토큰을 한 번만 넣으면 이 기기가 연결됩니다. 토큰은 이 기기에만 보관됩니다.';
-    $('syncFields').hidden = on;
-    $('syncConnect').hidden = on;
-    $('syncDisconnect').hidden = !on;
-    $('syncLink').hidden = !on;
+  // 간편 비밀번호: 토큰을 비밀번호로 암호화한 connect.json 을 공개 저장소에 두고, 새 기기는 비밀번호만 입력한다
+  const KDF_ITER = 600000;
+  let blob = null;   // 서버에 올라와 있는 connect.json
+  let mode = 'token'; // token | pass | connected | make
+
+  const toB64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
+  const fromB64 = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  async function deriveKey(pass, salt, iter) {
+    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass.normalize('NFKC')), 'PBKDF2', false, ['deriveKey']);
+    return crypto.subtle.deriveKey({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations: iter }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  }
+  async function sealConfig(pass) {
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const key = await deriveKey(pass, salt, KDF_ITER);
+    const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(JSON.stringify({ r: cfg.repo, k: cfg.token })));
+    return { v: 1, kdf: 'PBKDF2-SHA256', iter: KDF_ITER, salt: toB64(salt), iv: toB64(iv), ct: toB64(ct) };
+  }
+  async function openConfig(pass) {
+    const key = await deriveKey(pass, fromB64(blob.salt), blob.iter);
+    const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64(blob.iv) }, key, fromB64(blob.ct));
+    return JSON.parse(new TextDecoder().decode(plain));
+  }
+
+  function setMode(next) {
+    mode = next;
+    $('syncHint').textContent = {
+      connected: cfg ? `${cfg.repo} 저장소의 ${DATA_PATH} 에 기록을 저장하고 있습니다.` : '',
+      pass: '비밀번호를 입력하면 이 기기가 서버에 연결되고, 다른 기기에서 넣은 기록이 나타납니다. 기기마다 처음 한 번만 하면 됩니다.',
+      token: '비공개 GitHub 저장소를 서버로 씁니다. 저장소와 토큰을 한 번만 넣으면 이 기기가 연결됩니다. 토큰은 이 기기에만 보관됩니다.',
+      make: '비밀번호를 정하면 토큰을 그 비밀번호로 암호화합니다. 암호문은 공개 저장소에 올라가므로, 짐작하기 어려운 8자 이상으로 정해 주세요.',
+    }[next];
+    $('syncFields').hidden = next !== 'token';
+    $('ppFields').hidden = next !== 'pass';
+    $('ppMake').hidden = next !== 'make';
+    $('ppResult').hidden = true;
+    $('syncDisconnect').hidden = next !== 'connected';
+    $('syncLink').hidden = next !== 'connected';
+    $('ppStart').hidden = next !== 'connected';
+    $('useToken').hidden = next !== 'pass';
+    $('syncConnect').hidden = next === 'connected';
+    $('syncConnect').textContent = next === 'make' ? '만들기' : '연결';
+    $('syncConnect').disabled = false;
     $('syncError').textContent = '';
-    if (!on) { $('syncRepo').value = defaultRepo(); $('syncToken').value = ''; }
+  }
+
+  function openSettings() {
+    setMode(cfg ? 'connected' : blob ? 'pass' : 'token');
+    if (mode === 'token') { $('syncRepo').value = defaultRepo(); $('syncToken').value = ''; }
+    $('ppInput').value = ''; $('ppNew').value = '';
     if (!dlg.open) dlg.showModal();
+    if (mode === 'pass') $('ppInput').focus();
+  }
+
+  async function connectWithPass() {
+    const pass = $('ppInput').value;
+    if (!pass) { $('syncError').textContent = '비밀번호를 입력해 주세요.'; return; }
+    $('syncConnect').disabled = true;
+    $('syncError').textContent = '확인 중…';
+    let found;
+    try { found = await openConfig(pass); }
+    catch { $('syncError').textContent = '비밀번호가 맞지 않습니다.'; $('syncConnect').disabled = false; $('ppInput').select(); return; }
+    saveCfg({ repo: found.r, token: found.k });
+    dlg.close();
+    dirty = true;
+    syncNow();
+  }
+
+  async function makePass() {
+    if (!$('ppResult').hidden) { // 두 번째 누름: 복사
+      try { await navigator.clipboard.writeText($('ppOut').value); $('syncError').textContent = '복사했습니다.'; }
+      catch { $('ppOut').select(); $('syncError').textContent = '내용을 길게 눌러 복사해 주세요.'; }
+      return;
+    }
+    const pass = $('ppNew').value;
+    if (pass.length < 8) { $('syncError').textContent = '8자 이상으로 정해 주세요.'; return; }
+    $('syncConnect').disabled = true;
+    $('syncError').textContent = '암호화 중…';
+    try {
+      $('ppOut').value = JSON.stringify(await sealConfig(pass));
+      $('ppResult').hidden = false;
+      $('syncConnect').textContent = '복사';
+      $('syncError').textContent = '';
+    } catch { $('syncError').textContent = '이 브라우저에서는 암호화를 쓸 수 없습니다.'; }
+    $('syncConnect').disabled = false;
+  }
+
+  // 첫 방문 기기: connect.json 이 있으면 비밀번호부터 묻는다
+  async function offerPass() {
+    try {
+      const res = await fetch('connect.json', { cache: 'no-store' });
+      if (!res.ok) return;
+      const j = await res.json();
+      if (j && j.v === 1 && j.salt && j.iv && j.ct && j.iter >= 100000 && j.iter <= 5000000) blob = j;
+    } catch { return; }
+    if (!blob || cfg) return;
+    let dismissed = false;
+    try { dismissed = sessionStorage.getItem('diet.pp.later') === '1'; } catch { /* 무시 */ }
+    if (!dismissed && !sheet.open && !dlg.open) openSettings();
   }
 
   async function connect() {
@@ -471,8 +558,15 @@
 
   $('syncBtn').addEventListener('click', openSettings);
   $('syncCancel').addEventListener('click', () => dlg.close());
-  $('syncConnect').addEventListener('click', connect);
-  $('syncForm').addEventListener('submit', (e) => { e.preventDefault(); if (!cfg) connect(); });
+  const primary = () => (mode === 'pass' ? connectWithPass() : mode === 'make' ? makePass() : mode === 'token' ? connect() : null);
+  $('syncConnect').addEventListener('click', primary);
+  $('syncForm').addEventListener('submit', (e) => { e.preventDefault(); primary(); });
+  $('syncForm').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.isComposing && e.target.tagName === 'INPUT') { e.preventDefault(); primary(); }
+  });
+  $('ppStart').addEventListener('click', () => { setMode('make'); $('ppNew').focus(); });
+  $('useToken').addEventListener('click', () => { setMode('token'); $('syncRepo').value = defaultRepo(); $('syncToken').focus(); });
+  dlg.addEventListener('close', () => { if (!cfg) { try { sessionStorage.setItem('diet.pp.later', '1'); } catch { /* 무시 */ } } });
   dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); });
   $('syncDisconnect').addEventListener('click', () => {
     if (!confirm('이 기기의 연결을 끊습니다. 서버와 이 기기의 기록은 지워지지 않습니다.')) return;
@@ -534,4 +628,5 @@
   renderMonth();
   paintStatus();
   if (cfg) syncNow();
+  offerPass();
 })();

@@ -262,3 +262,8 @@ button { cursor: pointer; }
 }
 .ghost:hover { border-color: var(--leaf); }
 [hidden] { display: none !important; }
+.settings-body textarea {
+  width: 100%; padding: 10px 12px; font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--cell); color: var(--ink);
+  resize: none; word-break: break-all;
+}
