@@ -62,14 +62,15 @@
 
   function renderMonth() {
     const { y, m } = view;
-    $('monthTitle').textContent = `${y}년 ${m + 1}월`;
+    $('monthTitle').innerHTML = `${m + 1}월 <span class="yr">${y}</span>`;
     document.title = `식단 달력 · ${y}년 ${m + 1}월`;
 
     const first = new Date(y, m, 1).getDay();
     const count = new Date(y, m + 1, 0).getDate();
     const today = todayKey();
     const parts = [];
-    let recorded = 0, monthTotal = 0;
+    let recorded = 0, monthTotal = 0, monthMax = 0;
+    for (let d = 1; d <= count; d++) monthMax = Math.max(monthMax, daySum(data[keyOf(y, m, d)]));
 
     for (let i = 0; i < first; i++) parts.push('<div class="blank"></div>');
     for (let d = 1; d <= count; d++) {
@@ -88,7 +89,7 @@
       if (day) {
         meals = MEALS.map((meal) => {
           const has = day[meal.id] && day[meal.id].length;
-          return `<span class="m m-${meal.id}${has ? '' : ' none'}"><i>${meal.name[0]}<span class="l2">${meal.name[1]}</span></i><b>${has ? fmt(mealSum(day, meal.id)) : '–'}</b></span>`;
+          return `<span class="m m-${meal.id}${has ? '' : ' none'}"><i>${meal.name[0]}<span class="l2">${meal.name[1]}</span></i><b>${has ? fmt(mealSum(day, meal.id)) : ''}</b></span>`;
         }).join('');
       }
       const label = `${m + 1}월 ${d}일 ${WEEKDAYS[dow]}요일, ` + (day ? `합계 ${total} 킬로칼로리` : '기록 없음');
@@ -97,6 +98,7 @@
         `<span class="num"><span>${d}</span></span>` +
         `<span class="meals">${meals}</span>` +
         `<span class="sum${day ? '' : ' empty'}">${day ? fmt(total) : '0'}</span>` +
+        `<span class="bar" style="--w:${day && monthMax ? Math.max(8, Math.round((total / monthMax) * 100)) : 0}%"></span>` +
         `</button>`
       );
     }
