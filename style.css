@@ -234,3 +234,31 @@ button { cursor: pointer; }
   background: var(--leaf); color: #fff; font-weight: 600;
 }
 .done:hover { background: var(--leaf-deep); }
+
+/* ── 동기화 ── */
+#syncStatus { display: flex; align-items: center; gap: 7px; }
+#syncStatus::before { content: ""; width: 8px; height: 8px; border-radius: 4px; background: var(--muted); flex: none; }
+#syncStatus[data-state="synced"]::before { background: var(--leaf); }
+#syncStatus[data-state="syncing"]::before, #syncStatus[data-state="pending"]::before { background: var(--m-b); }
+#syncStatus[data-state="error"]::before, #syncStatus[data-state="auth"]::before { background: var(--sun); }
+#syncStatus[data-state="error"], #syncStatus[data-state="auth"] { color: var(--sun); }
+.backup { flex-wrap: wrap; }
+
+.sheet-head.plain { display: block; padding: calc(14px + env(safe-area-inset-top)) 16px 14px; text-align: left; }
+.settings-body { padding: 14px 16px 4px; }
+.settings-body label { display: block; margin: 12px 0 5px; font-size: 13px; font-weight: 600; }
+.settings-body input {
+  width: 100%; height: 44px; padding: 0 12px; font-size: 16px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--cell);
+}
+.settings-body input:focus { outline: 2px solid var(--leaf); outline-offset: 0; border-color: var(--leaf); }
+.hint { margin: 0; font-size: 14px; color: var(--ink); }
+.error { margin: 10px 0 0; min-height: 20px; font-size: 13px; color: var(--sun); }
+.sheet-foot.wrap { flex-wrap: wrap; gap: 8px; }
+.spacer { flex: 1; }
+.ghost {
+  height: 42px; padding: 0 14px; border-radius: 21px;
+  border: 1px solid var(--line); background: transparent; font-size: 14px;
+}
+.ghost:hover { border-color: var(--leaf); }
+[hidden] { display: none !important; }
