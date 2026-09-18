@@ -118,7 +118,7 @@
   }
 
   // ───────── 밀어서 달 넘기기 ─────────
-  // 달력 아무 곳이나 누른 채 왼쪽으로 밀면 이전 달, 오른쪽으로 밀면 다음 달. 세로 스크롤은 그대로 둔다.
+  // 달력 아무 곳이나 누른 채 왼쪽으로 밀면 다음 달, 오른쪽으로 밀면 이전 달. 세로 스크롤은 그대로 둔다.
   const cal = document.querySelector('.calendar');
   const daysEl = $('days');
   const SWIPE_MIN = 60; // 이만큼(px) 밀어야 넘어간다
@@ -126,15 +126,15 @@
   let suppressClick = false;
   let sliding = false;
 
-  function slideMonth(sign) { // sign: -1 왼쪽으로 밀기(이전 달), +1 오른쪽으로 밀기(다음 달)
+  function slideMonth(sign) { // sign: 민 방향. -1 왼쪽으로 밀기 → 다음 달, +1 오른쪽으로 밀기 → 이전 달 (책장 넘기듯)
     if (sliding) return;
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches) { shiftMonth(sign); resetSlide(); return; }
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) { shiftMonth(-sign); resetSlide(); return; }
     sliding = true;
     daysEl.style.transition = 'transform .14s ease-in, opacity .14s ease-in';
     daysEl.style.transform = `translateX(${sign * 30}%)`;
     daysEl.style.opacity = '0';
     setTimeout(() => {
-      shiftMonth(sign);
+      shiftMonth(-sign);
       daysEl.style.transition = 'none';
       daysEl.style.transform = `translateX(${-sign * 30}%)`;
       void daysEl.offsetWidth; // 위치를 먼저 적용시킨 뒤 들어오는 움직임을 시작
