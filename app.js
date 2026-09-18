@@ -117,6 +117,84 @@
     renderMonth();
   }
 
+  // ───────── 밀어서 달 넘기기 ─────────
+  // 달력 아무 곳이나 누른 채 왼쪽으로 밀면 이전 달, 오른쪽으로 밀면 다음 달. 세로 스크롤은 그대로 둔다.
+  const cal = document.querySelector('.calendar');
+  const daysEl = $('days');
+  const SWIPE_MIN = 60; // 이만큼(px) 밀어야 넘어간다
+  let swipe = null;
+  let suppressClick = false;
+  let sliding = false;
+
+  function slideMonth(sign) { // sign: -1 왼쪽으로 밀기(이전 달), +1 오른쪽으로 밀기(다음 달)
+    if (sliding) return;
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) { shiftMonth(sign); resetSlide(); return; }
+    sliding = true;
+    daysEl.style.transition = 'transform .14s ease-in, opacity .14s ease-in';
+    daysEl.style.transform = `translateX(${sign * 30}%)`;
+    daysEl.style.opacity = '0';
+    setTimeout(() => {
+      shiftMonth(sign);
+      daysEl.style.transition = 'none';
+      daysEl.style.transform = `translateX(${-sign * 30}%)`;
+      void daysEl.offsetWidth; // 위치를 먼저 적용시킨 뒤 들어오는 움직임을 시작
+      daysEl.style.transition = 'transform .22s cubic-bezier(.2, .8, .2, 1), opacity .22s';
+      daysEl.style.transform = '';
+      daysEl.style.opacity = '';
+      setTimeout(() => { sliding = false; }, 220);
+    }, 140);
+  }
+  function resetSlide() {
+    daysEl.style.transition = 'transform .18s ease-out, opacity .18s';
+    daysEl.style.transform = '';
+    daysEl.style.opacity = '';
+  }
+
+  cal.addEventListener('pointerdown', (e) => {
+    if ((e.pointerType === 'mouse' && e.button !== 0) || sliding) return;
+    swipe = { id: e.pointerId, x: e.clientX, y: e.clientY, active: false, dx: 0 };
+  });
+  cal.addEventListener('pointermove', (e) => {
+    if (!swipe || e.pointerId !== swipe.id) return;
+    const dx = e.clientX - swipe.x, dy = e.clientY - swipe.y;
+    if (!swipe.active) {
+      if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+        swipe.active = true;
+        try { cal.setPointerCapture(e.pointerId); } catch { /* 무시 */ }
+      } else if (Math.abs(dy) > 12) { swipe = null; return; } // 세로 스크롤
+      else return;
+    }
+    swipe.dx = dx;
+    daysEl.style.transition = 'none';
+    daysEl.style.transform = `translateX(${dx * 0.6}px)`;
+    daysEl.style.opacity = String(1 - Math.min(0.5, Math.abs(dx) / 400));
+  });
+  const endSwipe = (e) => {
+    if (!swipe || e.pointerId !== swipe.id) return;
+    const { active, dx } = swipe;
+    swipe = null;
+    if (!active) return;
+    suppressClick = true; // 밀고 난 뒤 손을 뗀 자리의 날짜가 눌리지 않게
+    setTimeout(() => { suppressClick = false; }, 80);
+    if (e.type === 'pointerup' && Math.abs(dx) >= SWIPE_MIN) slideMonth(dx < 0 ? -1 : 1);
+    else resetSlide();
+  };
+  cal.addEventListener('pointerup', endSwipe);
+  cal.addEventListener('pointercancel', endSwipe);
+  cal.addEventListener('click', (e) => {
+    if (suppressClick) { e.stopPropagation(); e.preventDefault(); suppressClick = false; }
+  }, true);
+
+  // 트랙패드 두 손가락 가로 스크롤
+  let wheelAcc = 0, wheelLock = 0;
+  cal.addEventListener('wheel', (e) => {
+    if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+    e.preventDefault();
+    if (Date.now() < wheelLock) return;
+    wheelAcc += e.deltaX;
+    if (Math.abs(wheelAcc) > 90) { slideMonth(wheelAcc > 0 ? -1 : 1); wheelAcc = 0; wheelLock = Date.now() + 700; }
+  }, { passive: false });
+
   // ───────── 입력 창 ─────────
   const sheet = $('sheet');
   let editKey = null;

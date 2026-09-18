@@ -88,6 +88,8 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .summary b { color: var(--ink); font-weight: 600; }
 
 /* ── 달력 ── */
+.calendar { overflow: hidden; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
+.days { will-change: transform; }
 .weekdays {
   display: grid; grid-template-columns: repeat(7, 1fr);
   color: var(--sub); font-size: 12px; font-weight: 500;
