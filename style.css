@@ -114,6 +114,7 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .day .num { font-size: 13px; font-weight: 500; line-height: 22px; height: 22px; }
 .day.sun .num { color: var(--sun); }
 .day.sat .num { color: var(--sat); }
+.day.today { box-shadow: inset 0 0 0 1.5px var(--accent); border-radius: 10px; border-top-color: transparent; }
 .day.today .num span {
   display: inline-block; min-width: 22px; height: 22px; padding: 0 4px; margin-left: -3px;
   border-radius: 11px; background: var(--accent); color: #fff; text-align: center; font-weight: 600;
@@ -230,6 +231,7 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 }
 .sheet-foot.wrap { flex-wrap: wrap; }
 .spacer { flex: 1; }
+.actions { display: flex; gap: 8px; margin-left: auto; }
 .saved { font-size: 13px; color: var(--sub); }
 .done {
   height: 44px; padding: 0 26px;

@@ -121,6 +121,7 @@
   const sheet = $('sheet');
   let editKey = null;
   let draft = null; // 화면용, 빈 줄 포함
+  let snapshot = null;
 
   function toDraft(day) {
     const out = {};
@@ -189,6 +190,7 @@
 
   function openDay(key) {
     editKey = key;
+    snapshot = data[key] ? JSON.stringify(data[key]) : null; // 닫기를 누르면 이 상태로 되돌린다
     draft = toDraft(data[key]);
     renderEditor();
     paintStatus();
@@ -215,6 +217,18 @@
   $('nextMonth').addEventListener('click', () => shiftMonth(1));
   $('todayBtn').addEventListener('click', () => {
     const t = new Date(); view.y = t.getFullYear(); view.m = t.getMonth(); renderMonth();
+  });
+  // 닫기: 이번에 열어서 고친 내용은 버리고 닫는다 (완료·바깥 누르기·Esc 는 저장된 그대로 닫음)
+  $('cancelDay').addEventListener('click', () => {
+    const current = data[editKey] ? JSON.stringify(data[editKey]) : null;
+    if (current !== snapshot) {
+      // 고친 내용이 이미 서버에 올라갔을 수 있으므로, 되돌린 값에 새 시각을 찍어 그쪽이 이기게 한다
+      data[editKey] = { ...(snapshot ? JSON.parse(snapshot) : {}), t: Date.now() };
+      persistLocal();
+      renderMonth();
+      markDirty();
+    }
+    sheet.close();
   });
   $('prevDay').addEventListener('click', () => shiftDay(-1));
   $('nextDay').addEventListener('click', () => shiftDay(1));
