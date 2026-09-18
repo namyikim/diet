@@ -3,6 +3,7 @@
 
   const STORE_KEY = 'diet.v1';
   const SYNC_KEY = 'diet.sync.v1';
+  const DEVICE_KEY = 'diet.device.v1';
   const DATA_PATH = 'data.json';
   const MEALS = [
     { id: 'b', name: '아침' },
@@ -11,9 +12,24 @@
     { id: 's', name: '간식' },
   ];
   const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
+  const { legacyFragmentPath, mergeData, restoreMeals, sanitizeData, serializeData, updateMeal, validatePassphrase } = DietCore;
 
-  // data: { "YYYY-MM-DD": { t: 수정시각(ms), b: [{k: 350, f: "토스트"}], l, d, s } }
-  // 끼니가 하나도 없고 t 만 있는 날은 "지웠음" 표시 — 다른 기기에서 되살아나지 않게 한다.
+  const cleanLegacyPath = legacyFragmentPath(location.hash, location.pathname, location.search);
+  if (cleanLegacyPath) history.replaceState(null, '', cleanLegacyPath);
+
+  let deviceId = '';
+  try {
+    deviceId = localStorage.getItem(DEVICE_KEY) || '';
+    if (!deviceId) {
+      deviceId = crypto.randomUUID ? crypto.randomUUID() : `device-${crypto.getRandomValues(new Uint32Array(4)).join('-')}`;
+      localStorage.setItem(DEVICE_KEY, deviceId);
+    }
+  } catch {
+    deviceId = crypto.randomUUID ? crypto.randomUUID() : `session-${Date.now()}`;
+  }
+
+  // data: { "YYYY-MM-DD": { t, r: { b/l/d/s: { n, d } }, b: [{k, f}], ... } }
+  // r은 끼니별 논리 revision이다. 빈 끼니의 revision은 삭제 tombstone 역할을 한다.
   let data = loadLocal();
 
   const $ = (id) => document.getElementById(id);
@@ -25,31 +41,12 @@
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
   function loadLocal() {
-    try { return sanitize(JSON.parse(localStorage.getItem(STORE_KEY))); }
+    try { return sanitizeData(JSON.parse(localStorage.getItem(STORE_KEY))); }
     catch { return {}; }
   }
   function persistLocal() {
     try { localStorage.setItem(STORE_KEY, JSON.stringify(data)); return true; }
     catch { return false; }
-  }
-
-  // 외부에서 들어온 값(서버, 백업 파일)을 정해진 모양으로 다듬는다
-  function sanitize(raw, stampMissing) {
-    const out = {};
-    if (!raw || typeof raw !== 'object') return out;
-    for (const [key, day] of Object.entries(raw)) {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(key) || !day || typeof day !== 'object') continue;
-      const clean = { t: Number(day.t) > 0 ? Number(day.t) : (stampMissing || 0) };
-      for (const { id } of MEALS) {
-        if (!Array.isArray(day[id])) continue;
-        const items = day[id]
-          .map((it) => ({ k: Math.min(99999, Math.max(0, parseInt(it && it.k, 10) || 0)), f: String((it && it.f) || '').slice(0, 80) }))
-          .filter((it) => it.k > 0 || it.f);
-        if (items.length) clean[id] = items;
-      }
-      out[key] = clean;
-    }
-    return out;
   }
 
   const hasMeals = (day) => !!day && MEALS.some((m) => day[m.id] && day[m.id].length);
@@ -93,12 +90,13 @@
         }).join('');
       }
       const label = `${m + 1}월 ${d}일 ${WEEKDAYS[dow]}요일, ` + (day ? `합계 ${total} 킬로칼로리` : '기록 없음');
+      const barValue = day && monthMax ? Math.max(8, Math.round((total / monthMax) * 100)) : 0;
       parts.push(
         `<button type="button" class="${cls.join(' ')}" data-date="${key}" aria-label="${label}">` +
         `<span class="num"><span>${d}</span></span>` +
         `<span class="meals">${meals}</span>` +
         `<span class="sum${day ? '' : ' empty'}">${day ? fmt(total) : '0'}</span>` +
-        `<span class="bar" style="--w:${day && monthMax ? Math.max(8, Math.round((total / monthMax) * 100)) : 0}%"></span>` +
+        `<progress class="bar" max="100" value="${barValue}" aria-hidden="true"></progress>` +
         `</button>`
       );
     }
@@ -200,6 +198,7 @@
   let editKey = null;
   let draft = null; // 화면용, 빈 줄 포함
   let snapshot = null;
+  let touchedMeals = new Set();
 
   function toDraft(day) {
     const out = {};
@@ -220,9 +219,10 @@
     return out;
   }
 
-  function commit() {
+  function commit(mealId) {
     const day = fromDraft();
-    if (hasMeals(day) || data[editKey]) data[editKey] = { t: Date.now(), ...day };
+    touchedMeals.add(mealId);
+    data = updateMeal(data, editKey, mealId, day[mealId] || [], deviceId);
     const ok = persistLocal();
     $('sheetTotal').textContent = fmt(daySum(day));
     if (!ok && !cfg) $('saved').textContent = '이 브라우저는 저장소를 쓸 수 없어 창을 닫으면 사라집니다';
@@ -269,6 +269,7 @@
   function openDay(key) {
     editKey = key;
     snapshot = data[key] ? JSON.stringify(data[key]) : null; // 닫기를 누르면 이 상태로 되돌린다
+    touchedMeals = new Set();
     draft = toDraft(data[key]);
     renderEditor();
     paintStatus();
@@ -300,11 +301,15 @@
   $('cancelDay').addEventListener('click', () => {
     const current = data[editKey] ? JSON.stringify(data[editKey]) : null;
     if (current !== snapshot) {
-      // 고친 내용이 이미 서버에 올라갔을 수 있으므로, 되돌린 값에 새 시각을 찍어 그쪽이 이기게 한다
-      data[editKey] = { ...(snapshot ? JSON.parse(snapshot) : {}), t: Date.now() };
-      persistLocal();
-      renderMonth();
-      markDirty();
+      // 편집 중 서버에서 들어온 다른 끼니는 보존하고, 이 편집기에서 만진 끼니만 되돌린다.
+      const before = snapshot ? JSON.parse(snapshot) : {};
+      const restored = restoreMeals(data, editKey, before, [...touchedMeals], deviceId);
+      if (JSON.stringify(restored[editKey] || null) !== current) {
+        data = restored;
+        persistLocal();
+        renderMonth();
+        markDirty();
+      }
     }
     sheet.close();
   });
@@ -319,7 +324,7 @@
       if (clean !== el.value) el.value = clean;
     }
     draft[el.dataset.meal][+el.dataset.i][el.dataset.field] = el.value;
-    commit();
+    commit(el.dataset.meal);
   });
 
   $('mealsEdit').addEventListener('click', (e) => {
@@ -333,7 +338,7 @@
     } else if (del) {
       draft[del.dataset.del].splice(+del.dataset.i, 1);
       renderEditor();
-      commit();
+      commit(del.dataset.del);
     }
   });
 
@@ -367,12 +372,17 @@
   let lastSynced = 0;
 
   function loadCfg() {
-    try { const c = JSON.parse(localStorage.getItem(SYNC_KEY)); return c && c.repo && c.token ? c : null; }
+    // 이전 버전이 남긴 장기 보관 토큰은 제거한다. 새 버전은 브라우저 세션 동안만 보관한다.
+    try { localStorage.removeItem(SYNC_KEY); } catch { /* 무시 */ }
+    try {
+      const c = JSON.parse(sessionStorage.getItem(SYNC_KEY));
+      return c && c.repo && c.token ? c : null;
+    }
     catch { return null; }
   }
   function saveCfg(next) {
     cfg = next;
-    try { next ? localStorage.setItem(SYNC_KEY, JSON.stringify(next)) : localStorage.removeItem(SYNC_KEY); } catch { /* 무시 */ }
+    try { next ? sessionStorage.setItem(SYNC_KEY, JSON.stringify(next)) : sessionStorage.removeItem(SYNC_KEY); } catch { /* 무시 */ }
   }
 
   const b64encode = (text) => {
@@ -382,27 +392,6 @@
     return btoa(bin);
   };
   const b64decode = (b64) => new TextDecoder().decode(Uint8Array.from(atob(b64.replace(/\s/g, '')), (c) => c.charCodeAt(0)));
-
-  // 날짜순, 하루 한 줄 — 저장소에서 변경 이력을 보기 좋게
-  function serialize(obj) {
-    const keys = Object.keys(obj).sort();
-    const line = (k) => {
-      const day = obj[k];
-      const ordered = { t: day.t || 0 };
-      for (const { id } of MEALS) if (day[id] && day[id].length) ordered[id] = day[id];
-      return `${JSON.stringify(k)}:${JSON.stringify(ordered)}`;
-    };
-    return `{\n${keys.map(line).join(',\n')}\n}\n`;
-  }
-
-  // 날짜별로 더 나중에 고친 쪽을 택한다 (같으면 서버)
-  function merge(local, remote) {
-    const out = { ...remote };
-    for (const [k, day] of Object.entries(local)) {
-      if (!out[k] || (day.t || 0) > (out[k].t || 0)) out[k] = day;
-    }
-    return out;
-  }
 
   class SyncError extends Error { constructor(kind, msg) { super(msg); this.kind = kind; } }
 
@@ -439,7 +428,7 @@
       if (!raw.ok) throw new SyncError('error', `서버에서 읽지 못했습니다 (${raw.status})`);
       text = await raw.text();
     }
-    try { return sanitize(JSON.parse(text)); }
+    try { return sanitizeData(JSON.parse(text)); }
     catch { throw new SyncError('error', `${DATA_PATH} 내용이 손상돼 덮어쓰지 않고 멈췄습니다`); }
   }
 
@@ -453,11 +442,11 @@
       for (let attempt = 0; ; attempt++) {
         const stamp = editStamp;
         const remote = await pullRemote();
-        const before = serialize(data);
-        data = merge(data, remote);
-        const merged = serialize(data);
+        const before = serializeData(data);
+        data = mergeData(data, remote);
+        const merged = serializeData(data);
         if (merged !== before) { persistLocal(); renderMonth(); }
-        if (merged === serialize(remote)) { if (stamp === editStamp) dirty = false; break; }
+        if (merged === serializeData(remote)) { if (stamp === editStamp) dirty = false; break; }
 
         const res = await api(`/repos/${cfg.repo}/contents/${DATA_PATH}`, {
           method: 'PUT',
@@ -525,7 +514,7 @@
     return m ? `${m[1]}/diet-data` : '';
   };
 
-  // 간편 비밀번호: 토큰을 비밀번호로 암호화한 connect.json 을 공개 저장소에 두고, 새 기기는 비밀번호만 입력한다
+  // 연결 키: 토큰을 연결 키로 암호화한 connect.json을 공개 저장소에 두고 새 브라우저에서 잠금을 푼다.
   const KDF_ITER = 600000;
   let blob = null;   // 서버에 올라와 있는 connect.json
   let mode = 'token'; // token | pass | connected | make
@@ -553,16 +542,15 @@
     mode = next;
     $('syncHint').textContent = {
       connected: cfg ? `${cfg.repo} 저장소의 ${DATA_PATH} 에 기록을 저장하고 있습니다.` : '',
-      pass: '비밀번호를 입력하면 이 기기가 서버에 연결되고, 다른 기기에서 넣은 기록이 나타납니다. 기기마다 처음 한 번만 하면 됩니다.',
-      token: '비공개 GitHub 저장소를 서버로 씁니다. 저장소와 토큰을 한 번만 넣으면 이 기기가 연결됩니다. 토큰은 이 기기에만 보관됩니다.',
-      make: '비밀번호를 정하면 토큰을 그 비밀번호로 암호화합니다. 암호문은 공개 저장소에 올라가므로, 짐작하기 어려운 8자 이상으로 정해 주세요.',
+      pass: '연결 키를 입력하면 서버 기록이 나타납니다. 보안을 위해 브라우저를 다시 열 때 한 번씩 입력합니다.',
+      token: '비공개 GitHub 저장소를 서버로 씁니다. 토큰은 현재 브라우저 세션에만 보관되며 브라우저를 닫으면 연결이 해제됩니다.',
+      make: '연결 키로 토큰을 암호화합니다. 암호문은 공개 저장소에 올라가므로, 짐작하기 어려운 16자 이상으로 정해 주세요.',
     }[next];
     $('syncFields').hidden = next !== 'token';
     $('ppFields').hidden = next !== 'pass';
     $('ppMake').hidden = next !== 'make';
     $('ppResult').hidden = true;
     $('syncDisconnect').hidden = next !== 'connected';
-    $('syncLink').hidden = next !== 'connected';
     $('ppStart').hidden = next !== 'connected';
     $('useToken').hidden = next !== 'pass';
     $('syncConnect').hidden = next === 'connected';
@@ -581,12 +569,12 @@
 
   async function connectWithPass() {
     const pass = $('ppInput').value;
-    if (!pass) { $('syncError').textContent = '비밀번호를 입력해 주세요.'; return; }
+    if (!pass) { $('syncError').textContent = '연결 키를 입력해 주세요.'; return; }
     $('syncConnect').disabled = true;
     $('syncError').textContent = '확인 중…';
     let found;
     try { found = await openConfig(pass); }
-    catch { $('syncError').textContent = '비밀번호가 맞지 않습니다.'; $('syncConnect').disabled = false; $('ppInput').select(); return; }
+    catch { $('syncError').textContent = '연결 키가 맞지 않습니다.'; $('syncConnect').disabled = false; $('ppInput').select(); return; }
     saveCfg({ repo: found.r, token: found.k });
     dlg.close();
     dirty = true;
@@ -600,7 +588,7 @@
       return;
     }
     const pass = $('ppNew').value;
-    if (pass.length < 8) { $('syncError').textContent = '8자 이상으로 정해 주세요.'; return; }
+    if (!validatePassphrase(pass)) { $('syncError').textContent = '16자 이상으로 정해 주세요.'; return; }
     $('syncConnect').disabled = true;
     $('syncError').textContent = '암호화 중…';
     try {
@@ -612,7 +600,7 @@
     $('syncConnect').disabled = false;
   }
 
-  // 첫 방문 기기: connect.json 이 있으면 비밀번호부터 묻는다
+  // 첫 방문 브라우저: connect.json이 있으면 연결 키부터 묻는다.
   async function offerPass() {
     try {
       const res = await fetch('connect.json', { cache: 'no-store' });
@@ -667,27 +655,9 @@
     saveCfg(null); remoteSha = null; clearTimeout(pushTimer);
     setState('local'); dlg.close();
   });
-  $('syncLink').addEventListener('click', async () => {
-    const payload = b64encode(JSON.stringify({ r: cfg.repo, k: cfg.token })).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-    const link = `${location.origin}${location.pathname}#connect=${payload}`;
-    try { await navigator.clipboard.writeText(link); $('syncError').textContent = '복사했습니다. 다른 기기에서 이 링크를 열면 바로 연결됩니다. 토큰이 들어 있으니 본인에게만 보내세요.'; }
-    catch { prompt('이 링크를 복사해 다른 기기에서 여세요. 토큰이 들어 있으니 본인에게만 보내세요.', link); }
-  });
-
-  // 다른 기기용 링크로 들어온 경우
-  (function adoptLink() {
-    const m = location.hash.match(/^#connect=([\w-]+)$/);
-    if (!m) return;
-    history.replaceState(null, '', location.pathname + location.search); // 토큰이 주소창·기록에 남지 않게
-    try {
-      const { r, k } = JSON.parse(b64decode(m[1].replace(/-/g, '+').replace(/_/g, '/')));
-      if (r && k) { saveCfg({ repo: r, token: k }); dirty = true; state = 'pending'; }
-    } catch { /* 잘못된 링크는 무시 */ }
-  })();
-
   // ───────── 백업 ─────────
   $('exportBtn').addEventListener('click', () => {
-    const blob = new Blob([serialize(data)], { type: 'application/json' });
+    const blob = new Blob([serializeData(data)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = `diet-backup-${todayKey()}.json`;
@@ -700,12 +670,13 @@
     e.target.value = '';
     if (!file) return;
     try {
-      const incoming = sanitize(JSON.parse(await file.text()));
+      const incoming = sanitizeData(JSON.parse(await file.text()));
       const days = Object.keys(incoming).filter((k) => hasMeals(incoming[k]));
       if (!days.length) { alert('불러올 기록이 없는 파일입니다.'); return; }
       if (!confirm(`${days.length}일치 기록을 불러옵니다. 같은 날짜의 기존 기록은 파일 내용으로 바뀝니다.`)) return;
-      const t = Date.now();
-      for (const k of days) data[k] = { ...incoming[k], t };
+      for (const k of days) {
+        for (const { id } of MEALS) data = updateMeal(data, k, id, incoming[k][id] || [], deviceId);
+      }
       persistLocal();
       renderMonth();
       markDirty();

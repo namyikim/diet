@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; font-src 'self'; script-src 'self'; connect-src 'self' https://api.github.com; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
 <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#111214" media="(prefers-color-scheme: dark)">
 <title>식단 달력</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍚</text></svg>">
-<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-<link rel="stylesheet" href="style.css?v=4">
+<link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
 <main class="page">
@@ -72,12 +72,12 @@
         <input id="syncToken" type="password" spellcheck="false" autocapitalize="off" placeholder="github_pat_…">
       </div>
       <div id="ppFields" hidden>
-        <label for="ppInput">비밀번호</label>
+        <label for="ppInput">연결 키</label>
         <input id="ppInput" type="password" autocapitalize="off" spellcheck="false" enterkeyhint="go">
       </div>
       <div id="ppMake" hidden>
-        <label for="ppNew">새 기기에서 입력할 비밀번호 (8자 이상)</label>
-        <input id="ppNew" type="text" autocapitalize="off" spellcheck="false" autocomplete="off">
+        <label for="ppNew">새 기기에서 입력할 연결 키 (16자 이상)</label>
+        <input id="ppNew" type="password" autocapitalize="off" spellcheck="false" autocomplete="new-password">
         <div id="ppResult" hidden>
           <label for="ppOut">암호화된 연결 정보 — diet 저장소에 connect.json 으로 올리면 적용됩니다</label>
           <textarea id="ppOut" readonly rows="5"></textarea>
@@ -87,8 +87,7 @@
     </div>
     <footer class="sheet-foot wrap">
       <button type="button" class="ghost" id="syncDisconnect" hidden>연결 끊기</button>
-      <button type="button" class="ghost" id="syncLink" hidden>다른 기기용 링크 복사</button>
-      <button type="button" class="ghost" id="ppStart" hidden>간편 비밀번호 만들기</button>
+      <button type="button" class="ghost" id="ppStart" hidden>안전한 연결 키 만들기</button>
       <button type="button" class="ghost" id="useToken" hidden>토큰으로 연결</button>
       <span class="spacer"></span>
       <button type="button" class="ghost" id="syncCancel">닫기</button>
@@ -97,6 +96,7 @@
   </form>
 </dialog>
 
-<script src="app.js?v=5"></script>
+<script src="core.js?v=1"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>
