@@ -16,7 +16,9 @@
     { id: 's', name: '간식' },
   ];
   const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
-  const { EXERCISE_ID, legacyFragmentPath, mergeData, restoreSections, sanitizeData, serializeData, updateExercise, updateMeal, validatePassphrase } = DietCore;
+  // 성인 하루 평균은 2400~2700 kcal이다. 그 위쪽 끝을 넘긴 날만 빨간 테두리로 표시한다.
+  const DAY_LIMIT = 2700;
+  const { EXERCISE_ID, exerciseBurn, legacyFragmentPath, mergeData, restoreSections, sanitizeData, serializeData, updateExercise, updateMeal, validatePassphrase } = DietCore;
 
   const cleanLegacyPath = legacyFragmentPath(location.hash, location.pathname, location.search);
   if (cleanLegacyPath) history.replaceState(null, '', cleanLegacyPath);
@@ -56,7 +58,8 @@
   const hasEntries = (day) => !!day && (MEALS.some((m) => day[m.id] && day[m.id].length) || !!day[EXERCISE_ID]);
   const exerciseText = (ex) => [ex.m ? `${ex.m}분` : '', ex.km ? `${ex.km}km` : ''].filter(Boolean).join(' ');
   const mealSum = (day, id) => (day && day[id] ? day[id].reduce((a, it) => a + (it.k || 0), 0) : 0);
-  const daySum = (day) => MEALS.reduce((a, m) => a + mealSum(day, m.id), 0);
+  const intakeSum = (day) => MEALS.reduce((a, m) => a + mealSum(day, m.id), 0);
+  const netSum = (day) => intakeSum(day) - exerciseBurn(day); // 먹은 것에서 운동으로 쓴 만큼을 뺀다
 
   // ───────── 달력 ─────────
   const now = new Date();
@@ -72,20 +75,24 @@
     const today = todayKey();
     const parts = [];
     let recorded = 0, monthTotal = 0, monthMax = 0;
-    for (let d = 1; d <= count; d++) monthMax = Math.max(monthMax, daySum(data[keyOf(y, m, d)]));
+    for (let d = 1; d <= count; d++) monthMax = Math.max(monthMax, netSum(data[keyOf(y, m, d)]));
 
     for (let i = 0; i < first; i++) parts.push('<div class="blank"></div>');
     for (let d = 1; d <= count; d++) {
       const key = keyOf(y, m, d);
       const day = hasEntries(data[key]) ? data[key] : null;
-      const total = daySum(day);
+      const intake = intakeSum(day);
+      const burn = exerciseBurn(day);
+      const total = intake - burn;
+      const over = intake > 0 && total > DAY_LIMIT;
       const dow = (first + d - 1) % 7;
-      if (total > 0) { recorded++; monthTotal += total; }
+      if (intake > 0) { recorded++; monthTotal += total; }
 
       const cls = ['day'];
       if (dow === 0) cls.push('sun');
       if (dow === 6) cls.push('sat');
       if (key === today) cls.push('today');
+      if (over) cls.push('over');
 
       let meals = '';
       if (day) {
@@ -95,14 +102,15 @@
         }).join('');
         if (day[EXERCISE_ID]) meals += `<span class="m m-x"><i>운<span class="l2">동</span></i><b>${esc(exerciseText(day[EXERCISE_ID]))}</b></span>`;
       }
-      const exLabel = day && day[EXERCISE_ID] ? `, 운동 ${exerciseText(day[EXERCISE_ID])}` : '';
-      const label = `${m + 1}월 ${d}일 ${WEEKDAYS[dow]}요일, ` + (day ? `합계 ${total} 킬로칼로리${exLabel}` : '기록 없음');
-      const barValue = total && monthMax ? Math.max(8, Math.round((total / monthMax) * 100)) : 0;
+      const exLabel = day && day[EXERCISE_ID] ? `, 운동 ${exerciseText(day[EXERCISE_ID])}` + (burn ? ` ${burn} 킬로칼로리 소모` : '') : '';
+      const sumLabel = intake > 0 ? `합계 ${total} 킬로칼로리${over ? ', 하루 평균 초과' : ''}` : '먹은 기록 없음';
+      const label = `${m + 1}월 ${d}일 ${WEEKDAYS[dow]}요일, ` + (day ? `${sumLabel}${exLabel}` : '기록 없음');
+      const barValue = total > 0 && monthMax > 0 ? Math.max(8, Math.round((total / monthMax) * 100)) : 0;
       parts.push(
         `<button type="button" class="${cls.join(' ')}" data-date="${key}" aria-label="${label}">` +
         `<span class="num"><span>${d}</span></span>` +
         `<span class="meals">${meals}</span>` +
-        `<span class="sum${total ? '' : ' empty'}">${fmt(total)}</span>` +
+        `<span class="sum${intake ? '' : ' empty'}">${fmt(intake ? total : 0)}</span>` +
         `<progress class="bar" max="100" value="${barValue}" aria-hidden="true"></progress>` +
         `</button>`
       );
@@ -237,12 +245,35 @@
     return rest.length ? `${head.slice(0, 3)}.${rest.join('').slice(0, 2)}` : head.slice(0, 3);
   };
 
+  // 화면에 보여 줄 합계: 먹은 것 − 운동. 운동만 적은 날은 합계를 0으로 둔다.
+  function draftDay() {
+    const day = fromDraft();
+    const ex = exerciseFromDraft();
+    if (ex.m || ex.km) day[EXERCISE_ID] = ex;
+    return day;
+  }
+  function paintTotal() {
+    const day = draftDay();
+    const intake = intakeSum(day);
+    const burn = exerciseBurn(day);
+    const total = intake - burn;
+    const over = intake > 0 && total > DAY_LIMIT;
+    $('sheetTotal').textContent = fmt(intake ? total : 0);
+    const note = $('sheetNote');
+    const parts = [];
+    if (burn && intake) parts.push(`먹은 것 ${fmt(intake)} − 운동 ${fmt(burn)}`);
+    else if (burn) parts.push(`운동으로 ${fmt(burn)} kcal 소모`);
+    if (over) parts.push(`하루 평균 ${fmt(DAY_LIMIT)} kcal 넘음`);
+    note.textContent = parts.join(' · ');
+    note.dataset.over = over ? '1' : '';
+  }
+
   function commit(mealId) {
     const day = fromDraft();
     touched.add(mealId);
     data = updateMeal(data, editKey, mealId, day[mealId] || [], deviceId);
     const ok = persistLocal();
-    $('sheetTotal').textContent = fmt(daySum(day));
+    paintTotal();
     if (!ok && !cfg) $('saved').textContent = '이 브라우저는 저장소를 쓸 수 없어 창을 닫으면 사라집니다';
     renderMonth();
     markDirty();
@@ -252,6 +283,7 @@
     touched.add(EXERCISE_ID);
     data = updateExercise(data, editKey, exerciseFromDraft(), deviceId);
     const ok = persistLocal();
+    paintTotal(); // 운동을 고치면 합계도 달라진다
     if (!ok && !cfg) $('saved').textContent = '이 브라우저는 저장소를 쓸 수 없어 창을 닫으면 사라집니다';
     renderMonth();
     markDirty();
@@ -260,7 +292,7 @@
   function renderEditor() {
     const date = parseKey(editKey);
     $('sheetDate').textContent = `${date.getMonth() + 1}월 ${date.getDate()}일 ${WEEKDAYS[date.getDay()]}요일`;
-    $('sheetTotal').textContent = fmt(daySum(fromDraft()));
+    paintTotal();
     $('mealsEdit').innerHTML = MEALS.map((meal) => {
       const rows = draft[meal.id].map((it, i) => `
         <div class="row m-${meal.id}">

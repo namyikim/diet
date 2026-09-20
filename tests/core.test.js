@@ -2,7 +2,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
+  KCAL_PER_KM,
   compareRevision,
+  exerciseBurn,
   legacyFragmentPath,
   mergeData,
   restoreSections,
@@ -194,6 +196,14 @@ test('cancelling restores a touched exercise entry', () => {
   const restored = restoreSections(edited, '2026-09-18', opened['2026-09-18'], ['x'], 'phone')['2026-09-18'];
 
   assert.deepEqual(restored.x, { m: 30, km: 3 });
+});
+
+test('calories burned come from the distance, rounded to a whole number', () => {
+  assert.equal(exerciseBurn({ x: { m: 30, km: 5 } }), 5 * KCAL_PER_KM);
+  assert.equal(exerciseBurn({ x: { m: 30, km: 5.25 } }), Math.round(5.25 * KCAL_PER_KM));
+  assert.equal(exerciseBurn({ x: { m: 45, km: 0 } }), 0, '시간만 적은 날은 빼지 않는다');
+  assert.equal(exerciseBurn({ b: [{ k: 300, f: '아침' }] }), 0);
+  assert.equal(exerciseBurn(null), 0);
 });
 
 test('legacy token fragments are scrubbed without decoding them', () => {

@@ -9,6 +9,8 @@
   const EXERCISE_ID = 'x';
   const SECTION_IDS = [...MEAL_IDS, EXERCISE_ID]; // 병합 단위. 끼니 넷과 운동 기록.
   const LEGACY_DEVICE = 'legacy';
+  // 걷기·달리기 어림값. 몸무게 60kg 기준으로 1km에 약 60 kcal을 쓴다.
+  const KCAL_PER_KM = 60;
 
   function cleanItems(value) {
     if (!Array.isArray(value)) return [];
@@ -28,6 +30,12 @@
     const km = Number.isFinite(rawKm) ? Math.min(999, Math.max(0, Math.round(rawKm * 100) / 100)) : 0;
     if (!minutes && !km) return null;
     return { m: minutes, km };
+  }
+
+  // 그날 운동으로 소모한 칼로리. 거리만 쓴다(시간은 강도를 알 수 없어 계산에 넣지 않는다).
+  function exerciseBurn(day) {
+    const ex = day && day[EXERCISE_ID];
+    return ex && ex.km ? Math.round(ex.km * KCAL_PER_KM) : 0;
   }
 
   const cleanSection = (id, value) => (id === EXERCISE_ID ? cleanExercise(value) : cleanItems(value));
@@ -162,9 +170,11 @@
 
   return {
     EXERCISE_ID,
+    KCAL_PER_KM,
     MEAL_IDS,
     SECTION_IDS,
     compareRevision,
+    exerciseBurn,
     legacyFragmentPath,
     mergeData,
     restoreSections,
