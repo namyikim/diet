@@ -130,6 +130,8 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .day .m .l2 { display: none; }
 .day .m b { font-weight: 500; color: var(--ink); opacity: .78; }
 .day .m.none i { color: var(--faint); }
+.day .m-x { margin-top: 2px; }
+.day .m-x b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .day .sum {
   display: block; margin-top: 3px;
@@ -231,6 +233,16 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
   font-size: 20px; line-height: 1; color: var(--faint);
 }
 .row .icon:hover { background: var(--surface); color: var(--ink); }
+
+/* 운동: 끼니 아래, 시간(분)과 거리(km) */
+.meal.exercise { margin-top: 7px; padding-top: 12px; border-top: 1px solid var(--line); }
+.row.ex { grid-template-columns: 38px 1fr 1fr 36px; }
+.row .unit { position: relative; display: block; min-width: 0; }
+.row .unit i {
+  position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+  font-style: normal; font-size: 12px; font-weight: 500; color: var(--sub); pointer-events: none;
+}
+.row .num { text-align: right; font-weight: 600; padding-right: 36px; }
 
 .sheet-foot {
   display: flex; justify-content: space-between; align-items: center; gap: 8px;
